@@ -3,3 +3,5 @@ graphviz
 python-docx
 groq
 python-dotenv
+pandas
+openpyxl
