@@ -28,9 +28,9 @@ TEXT_GREY = RGBColor(80, 80, 80)
                                                                 # ==============================
 
 def load_config():
-    contacts = pd.read_excel("config.xlsx", sheet_name="CONTACTS")
-    company = pd.read_excel("config.xlsx", sheet_name="COMPANY")
-    clients = pd.read_excel("config.xlsx", sheet_name="CLIENT")
+    contacts = pd.read_excel("Config.xlsx", sheet_name="CONTACTS")
+    company = pd.read_excel("Config.xlsx", sheet_name="COMPANY")
+    clients = pd.read_excel("Config.xlsx", sheet_name="CLIENT")
     contacts_dict = contacts.set_index("Role").to_dict("index")
     company_dict = dict(zip(company["Company Fields"], company["Company Values"]))
     clients_dict = clients.set_index("Client Code").to_dict("index")
