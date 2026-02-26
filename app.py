@@ -345,8 +345,10 @@ if st.button("Generate Process Design Document", disabled=generate_disabled):
                 logo_file = brand.get("Logo", "KMG_LOGO.png")
                 banner_file = brand.get("Banner", "KMG_BANNER.png")
 
-                logo_path = os.path.join("Assets", logo_file)
-                banner_path = os.path.join("Assets", banner_file)
+                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+                logo_path = os.path.join(BASE_DIR, "Assets", logo_file)
+                banner_path = os.path.join(BASE_DIR, "Assets", banner_file)
             else:
                 #create dynamic title from manual input
                 first_line = manual_input.strip().split("\n")[0]
