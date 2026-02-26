@@ -5,6 +5,8 @@ from groq import Groq
 from dotenv import load_dotenv
 from graphviz import Digraph
 import os, docx
+from streamlit_lottie import st_lottie
+import requests
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -27,6 +29,11 @@ MAX_CHARS = 15000
                                                                 # ==============================
                                                                 # ------HELPER FUNCTIONS--------
                                                                 # ==============================
+
+
+with open("Assets/Web_Logo.json") as f:
+    lottie = json.load(f)                                                    
+
 
 def load_config():
     CONFIG_PATH = "Input/Config.xlsx"
@@ -274,8 +281,34 @@ def insert_constant_header(document, title, client_name, date_str, logo_path, cl
                                                             # ------------UI----------------
                                                             # ==============================
 
-st.set_page_config(page_title="AI PDD Generator", layout="wide")
-st.title("Process Design Document Generator")
+st.set_page_config(page_title="ProcessCraft AI – PDD Studio", layout="wide")
+col1, col2 = st.columns([1.2, 3])
+
+col1, col2 = st.columns([1.2, 3])
+
+with col1:
+    if lottie:
+        st_lottie(lottie, height=140)
+
+with col2:
+    st.title("ProcessCraft AI – PDD Studio")
+    st.caption("AI-Powered Process Design & Documentation Platform")
+
+st.markdown("""
+<style>
+
+/* Keep drag & drop text */
+[data-testid="stFileUploader"] section div {
+    display: flex;
+}
+
+/* Hide only the helper text line */
+[data-testid="stFileUploader"] section div:nth-child(2) {
+    display: none !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
 client = Groq(api_key=api_key) if api_key else None
 uploaded_file = st.file_uploader(
     f"Upload Source Process Input File (Maximum {MAX_CHARS:,} characters)",
