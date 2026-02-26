@@ -22,24 +22,28 @@ api_key = os.getenv("GROQ_API_KEY")
 KMG_NAVY = RGBColor(31, 73, 125)
 BLACK = RGBColor(0, 0, 0)
 TEXT_GREY = RGBColor(80, 80, 80)
-
+# INPUT SIZE LIMIT
+MAX_CHARS = 15000
                                                                 # ==============================
                                                                 # ------HELPER FUNCTIONS--------
                                                                 # ==============================
 
 def load_config():
-    contacts = pd.read_excel("Config.xlsx", sheet_name="CONTACTS")
-    company = pd.read_excel("Config.xlsx", sheet_name="COMPANY")
-    clients = pd.read_excel("Config.xlsx", sheet_name="CLIENT")
+    CONFIG_PATH = "Input/Config.xlsx"
+    branding = pd.read_excel(CONFIG_PATH, sheet_name="BRANDING")
+    contacts = pd.read_excel(CONFIG_PATH, sheet_name="CONTACTS")
+    company = pd.read_excel(CONFIG_PATH, sheet_name="COMPANY")
+    clients = pd.read_excel(CONFIG_PATH, sheet_name="CLIENT")
+    branding_dict = branding.set_index("Client Code").to_dict("index")
     contacts_dict = contacts.set_index("Role").to_dict("index")
     company_dict = dict(zip(company["Company Fields"], company["Company Values"]))
     clients_dict = clients.set_index("Client Code").to_dict("index")
-    return contacts_dict, company_dict, clients_dict
+    return branding_dict, contacts_dict, company_dict, clients_dict
 
 def extract_text_from_docx(file):
-
     doc = docx.Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
+    full_text = "\n".join([para.text for para in doc.paragraphs])
+    return full_text[:15000]
 
 def set_font(run, name="Trebuchet MS", size=11, color=None, bold=False, italic=False, underline=False):
 
@@ -51,7 +55,7 @@ def set_font(run, name="Trebuchet MS", size=11, color=None, bold=False, italic=F
     if color: run.font.color.rgb = color
 
 def get_smart_flow_data(client, process_details):
-   
+    process_details = process_details[:4000]
     prompt = (f"Analyze this process: {process_details}. "
               f"Break it into a structured flowchart with actions and decisions. "
               f"Return ONLY a JSON object with this structure: "
@@ -60,7 +64,7 @@ def get_smart_flow_data(client, process_details):
     try:
         completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             response_format={ "type": "json_object" }
         )
         return json.loads(completion.choices[0].message.content)
@@ -104,37 +108,132 @@ def generate_smart_flowchart(data, output_path="flowchart"):
     dot.render(output_path, format='png', cleanup=True)
     return f"{output_path}.png"
 
+def get_short_context(client, process_details):
+    process_details = process_details[:12000]
+    if not client:
+        return process_details[:3000]
+
+    prompt = f"""
+    Summarize the following process in a concise way.
+    Keep only key steps, systems used, inputs, outputs and decision points.
+
+    Process:
+    {process_details}
+    """
+
+    completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.1-8b-instant"
+    )
+
+    return completion.choices[0].message.content
+
 def generate_ai_content(client, section_name, process_details, context_title):
 
-    if not client: return "[API Key Missing]"
+    if not client:
+        return "[API Key Missing]"
+
+    section_prompts = {
+
+        "INTRODUCTION":
+        f"""
+        Provide a brief introduction for the process '{context_title}'.
+
+        Write in paragraph form covering:
+        - business context
+        - what the process does
+        - systems involved
+
+        Do not create any sub-headings.
+        """,
+
+        "AUDIENCE":
+        f"""
+        Identify the intended audience for this document.
+
+        Start with one short paragraph explaining who should use this document,
+        followed by a bullet list of roles.
+
+        Do not add sub-headings.
+        """,
+
+        "PURPOSE":
+        f"""
+        Explain the purpose of this document in paragraph form.
+
+        Cover:
+        - why this document is created
+        - how it will be used
+
+        Do not create document objective or any sub-headings.
+        """,
+
+        "SCOPE":
+        f"""
+        Define the scope of the process '{context_title}' in paragraph form.
+
+        Then provide the following as a list, each item on a new line:
+        - in scope
+        - out of scope
+        - start point
+        - end point
+
+        Do not create sub-headings.
+        """
+    }
+
+    prompt = f"""
+    Context:
+    {process_details}
+
+    {section_prompts.get(section_name, "")}
+
+    Write in a professional and technical tone.
+
+    Do not generate sub-headings.
+    Do not repeat the section title inside the content.
+    Write the entire content in well-structured paragraphs.
+
+    Where a list is required, return each item on a new line.
+    Do NOT add *, -, or numbers.
+    Do NOT add manual bullets.
+    For all other text, use paragraph format.
+
+    Return plain text only.
+    No markdown.
+    No asterisks.
+    No additional headings.
+    """
+
     try:
-        prompt = (f"Context: {process_details}. Project: {context_title}. "
-                  f"Write a 2-3 sentence technical summary for the '{section_name}' section. "
-                  f"Keep it concise, professional, and no fluff.")
         completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="llama-3.3-70b-versatile",
         )
+
         return completion.choices[0].message.content
+
     except Exception as e:
         return f"[AI Error: {str(e)}]"
 
-def insert_constant_header(document, title, client_name, date_str):
+def insert_constant_header(document, title, client_name, date_str, logo_path, client_cfg):
 
-    htab = document.add_table(rows=4, cols=3)
-    section = document.sections[0]
+    section = document.sections[-1]
+    header = section.header
+
+    # usable page width
     usable_width = section.page_width - section.left_margin - section.right_margin
+
+    # create table in header (WIDTH MANDATORY)
+    htab = header.add_table(rows=4, cols=3, width=usable_width)
     htab.alignment = WD_ALIGN_PARAGRAPH.CENTER
     htab.autofit = False
+    htab.style = "Table Grid"
+
     from docx.shared import Emu
     htab.columns[0].width = Emu(int(usable_width * 0.5))
     htab.columns[1].width = Emu(int(usable_width * 0.3))
     htab.columns[2].width = Emu(int(usable_width * 0.2))
-    htab.style = 'Table Grid'
-    htab.autofit = False
-    for cell in htab.columns[0].cells: cell.width = Inches(2.5)
-    for cell in htab.columns[1].cells: cell.width = Inches(2.0)
-    for cell in htab.columns[2].cells: cell.width = Inches(1.5)
 
     def fill_h(row, col, text, is_bold=False):
 
@@ -164,11 +263,12 @@ def insert_constant_header(document, title, client_name, date_str):
 
     logo_cell = htab.cell(0, 2).merge(htab.cell(3, 2))
     logo_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER # Vertical center
-    if os.path.exists("logo.png"):
+
+    if os.path.exists(logo_path):
         lp = logo_cell.paragraphs[0]
         lp.alignment = WD_ALIGN_PARAGRAPH.CENTER # Horizontal center
-        lp.add_run().add_picture("logo.png", width=Inches(1.1)) # Slightly larger for better fit
-    document.add_paragraph("\n")
+        lp.add_run().add_picture(logo_path, width=Inches(1.1))
+    header.add_paragraph().paragraph_format.space_after = Pt(12)
 
                                                             # ==============================
                                                             # ------------UI----------------
@@ -177,20 +277,60 @@ def insert_constant_header(document, title, client_name, date_str):
 st.set_page_config(page_title="AI PDD Generator", layout="wide")
 st.title("Process Design Document Generator")
 client = Groq(api_key=api_key) if api_key else None
-uploaded_file = st.file_uploader("Upload Source Process Input File", type=["txt", "docx"])
-manual_input = st.text_area("Or Enter Process Details Manually", height=100)
-process_context = ""
+uploaded_file = st.file_uploader(
+    f"Upload Source Process Input File (Maximum {MAX_CHARS:,} characters)",
+    type=["txt", "docx"]
+)
+manual_input = st.text_area(
+    f"Or Enter Process Details Manually (Maximum {MAX_CHARS:,} characters)",
+    height=150
+)
+process_context = st.session_state.get("process_context", "")
+manual_exceeded = False
+file_exceeded = False
+char_count = len(manual_input)
+st.caption(f"Characters used: {char_count:,} / {MAX_CHARS:,}")
+# -------- MANUAL INPUT CHECK --------
+if char_count > MAX_CHARS:
+    manual_exceeded = True
+    st.error("Input limit exceeded. Please reduce the content to proceed.")
 
+
+# -------- FILE CHECK --------
 if uploaded_file:
-    process_context = extract_text_from_docx(uploaded_file) if uploaded_file.name.endswith('.docx') else str(uploaded_file.read(), "utf-8")
-else:
+
+    if uploaded_file.name.endswith(".docx"):
+        file_text = "\n".join([p.text for p in docx.Document(uploaded_file).paragraphs])
+
+    else:
+        file_text = str(uploaded_file.read(), "utf-8")
+        uploaded_file.seek(0)   # ⭐ ADD THIS
+
+    if len(file_text) > MAX_CHARS:
+        file_exceeded = True
+        st.error("Uploaded document exceeds the supported size. Please upload a smaller file.")
+    else:
+        st.session_state.process_context = file_text
+        process_context = file_text
+
+
+# -------- USE MANUAL INPUT --------
+elif manual_input and not manual_exceeded:
+    st.session_state.process_context = manual_input
     process_context = manual_input
-if st.button("Generate Process Design Document"):
-    contacts, company, clients = load_config()
+generate_disabled = (
+    (not process_context) or
+    manual_exceeded or
+    file_exceeded
+)
+
+if st.button("Generate Process Design Document", disabled=generate_disabled):
+    branding, contacts, company, clients = load_config()
     if not process_context:
         st.error("Please provide process details.")
     else:
         with st.spinner("Generating document..."):
+            short_context = get_short_context(client, process_context)   
             today = date.today().strftime("%m/%d/%Y")
             if uploaded_file:
                 raw_filename = uploaded_file.name.rsplit('.', 1)[0]
@@ -200,16 +340,44 @@ if st.button("Generate Process Design Document"):
                 client_cfg = clients.get(client_code)
                 if client_cfg is None:
                     client_cfg = list(clients.values())[0]
+                brand = branding.get(client_code, {})
+
+                logo_file = brand.get("Logo", "KMG_LOGO.png")
+                banner_file = brand.get("Banner", "KMG_BANNER.png")
+
+                logo_path = os.path.join("Assets", logo_file)
+                banner_path = os.path.join("Assets", banner_file)
             else:
-                dynamic_title = "UiPath Automation - Process Overview"
-                client_name = "KMG"
-                client_cfg = list(clients.values())[0]
+                #create dynamic title from manual input
+                first_line = manual_input.strip().split("\n")[0]
+
+                if first_line:
+                    dynamic_title = first_line[:60]
+                else:
+                    dynamic_title = "Process Design Document"
+
+                client_name = dynamic_title.split(" ")[0].upper()
+                client_code = client_name
+                client_cfg = clients.get(client_name)
+
+                if client_cfg is None:
+                    client_cfg = list(clients.values())[0]     
+                brand = branding.get(client_code, {})
+                logo_file = brand.get("Logo", "KMG_LOGO.png")
+                banner_file = brand.get("Banner", "KMG_BANNER.png")
+                logo_path = os.path.join("Assets", logo_file)
+                banner_path = os.path.join("Assets", banner_file)  
+
             doc = Document()
             section = doc.sections[0]
             section.left_margin = Inches(0.7)
             section.right_margin = Inches(0.7)
             section.top_margin = Inches(0.7)
             section.bottom_margin = Inches(0.7)
+            for section in doc.sections:
+                section.header_distance = Inches(0.6)
+            for sec in doc.sections:
+                sec.footer_distance = Inches(0.5)
             from docx.enum.text import WD_LINE_SPACING
             style = doc.styles['Normal']
             style.font.name = 'Trebuchet MS'
@@ -219,7 +387,6 @@ if st.button("Generate Process Design Document"):
             pformat.space_after = Pt(0)
             pformat.line_spacing_rule = WD_LINE_SPACING.SINGLE
             pformat.line_spacing = 1
-            doc.sections[0].different_first_page_header_footer = True
 
                                                                     # ==============================
                                                                     # PAGE 1: COVER PAGE
@@ -292,11 +459,11 @@ if st.button("Generate Process Design Document"):
             bottom.set(qn('w:color'), '1F497D')
             pBdr.append(bottom)
             pPr.append(pBdr)
-            # Banner
-            if os.path.exists("banner.png"):
+
+            if os.path.exists(banner_path):
                 p_img = cover_cell.add_paragraph()
                 p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_img.add_run().add_picture("banner.png", width=Inches(7))
+                p_img.add_run().add_picture(banner_path, width=Inches(7))
             # Bottom blue line
             line_bottom = cover_cell.add_paragraph()
             line_bottom.paragraph_format.space_before = Pt(4)
@@ -341,25 +508,29 @@ if st.button("Generate Process Design Document"):
             p4 = cell.add_paragraph()
             run_web = p4.add_run(f"{company['website']} | {company['social']}")
             set_font(run_web, name="Trebuchet MS", size=10)
-            if os.path.exists("logo.png"):
+            if os.path.exists(logo_path):
 
                 c_right = footer_tab.cell(0, 1).paragraphs[0]
                 c_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                c_right.add_run().add_picture("logo.png", width=Inches(1.3))
+                c_right.add_run().add_picture(logo_path, width=Inches(1.1))
 
                                                                     # ==============================
                                                                     # PAGE 2: TABLE OF CONTENTS
                                                                     # ==============================
 
-            doc.add_page_break()
-            insert_constant_header(doc, dynamic_title, client_name, today)
+            cover_cell.add_paragraph()
+            doc.sections[0].different_first_page_header_footer = False
+            from docx.enum.section import WD_SECTION
+            doc.add_section(WD_SECTION.NEW_PAGE)
+            doc.sections[-1].header.is_linked_to_previous = False
+            insert_constant_header(doc, dynamic_title, client_name, today, logo_path, client_cfg)
             p = doc.add_paragraph()
             run = p.add_run("CONTENTS")
             set_font(run, name="Trebuchet MS", size=18, bold=True, underline=True, color=BLACK)
             p.paragraph_format.space_after = Pt(12)
             contents = [("1 Version History", "3"), ("   1.1 Release History", "3"), ("   1.2 Contact Information", "3"),
 
-                        ("2 Introduction", "4"), ("3 Audience", "4"), ("4 Purpose", "4"), ("5 Scope", "4"), ("6 Process Flow Diagram", "5")]
+                        ("2 Introduction", "4"), ("3 Audience", "4"), ("4 Purpose", "5"), ("5 Scope", "5"), ("6 Process Flow Diagram", "6")]
             for item, pg in contents:
                 p = doc.add_paragraph()
                 p.paragraph_format.space_before = Pt(5)  
@@ -394,9 +565,8 @@ if st.button("Generate Process Design Document"):
                                                                     # ==============================
 
             doc.add_page_break()
-            insert_constant_header(doc, dynamic_title, client_name, today)
-            doc.add_paragraph().paragraph_format.space_after = Pt(14)
             vh_p = doc.add_paragraph()
+            vh_p.paragraph_format.space_after = Pt(12)
             set_font(vh_p.add_run("VERSION HISTORY"), size=18, bold=True, underline=True)
             vh_p.paragraph_format.space_after = Pt(14)
             p_rh = doc.add_paragraph()
@@ -432,9 +602,6 @@ if st.button("Generate Process Design Document"):
                 f"{contacts['KMG_CONTACT']['Name']} | "
                 f"{contacts['KMG_CONTACT']['Title']} | "
                 f"{contacts['KMG_CONTACT']['Email']}\n"
-                f"{contacts['KMG_VP']['Name']} | "
-                f"{contacts['KMG_VP']['Title']} | "
-                f"{contacts['KMG_VP']['Email']}"
             )
             set_font(run, size=9)
             p_contact_text.paragraph_format.space_after = Pt(10)
@@ -454,7 +621,8 @@ if st.button("Generate Process Design Document"):
                                                                     # ==============================
 
             doc.add_page_break()
-            insert_constant_header(doc, dynamic_title, client_name, today)
+            top_gap = doc.add_paragraph()
+            top_gap.paragraph_format.space_after = Pt(12)
             sections = ["INTRODUCTION", "AUDIENCE", "PURPOSE", "SCOPE"]
             for title in sections:
                 # HEADING
@@ -463,24 +631,45 @@ if st.button("Generate Process Design Document"):
                 p_head.paragraph_format.space_after = Pt(6)
                 set_font(p_head.add_run(title), size=18, bold=True, underline=True)
                 # CONTENT PARAGRAPH
-                p_body = doc.add_paragraph(generate_ai_content(client, title, process_context, dynamic_title))
-                p_body.paragraph_format.space_before = Pt(0)
-                p_body.paragraph_format.space_after = Pt(6)
-                set_font(p_body.runs[0], size=11)
+                content = generate_ai_content(client, title, short_context, dynamic_title)
+
+                for line in content.split("\n"):
+                    line = line.strip()
+
+                    clean = line.lstrip("*-• ").strip()
+
+                    # detect list item by context (multi-line list from AI)
+                    if (
+                        clean
+                        and len(clean.split()) < 12
+                        and line[0].islower() is False
+                        and not clean.endswith(".")
+                    ):
+                        bullet = doc.add_paragraph(clean, style="List Bullet")
+                        set_font(bullet.runs[0], size=11)
+
+                    elif clean:
+                        para = doc.add_paragraph(clean)
+                        for run in para.runs:
+                            set_font(run, size=11)
+                    elif line:
+                        para = doc.add_paragraph(line)
+                        for run in para.runs:
+                             set_font(run, size=11)
 
                                                                     # ==============================
                                                                     # PAGE 5: PROCESS FLOW
                                                                     # ==============================
 
             doc.add_page_break()
-            insert_constant_header(doc, dynamic_title, client_name, today)
             p_flow = doc.add_paragraph()
+            p_flow.paragraph_format.space_after = Pt(12)
             set_font(p_flow.add_run("PROCESS FLOW DIAGRAM"), size=18, bold=True, underline=True)
             p_flow.paragraph_format.space_after = Pt(12)
 
             try:
                 # 1. AI se structured JSON data mangwayein
-                flow_data = get_smart_flow_data(client, process_context)
+                flow_data = get_smart_flow_data(client, short_context)
                 # 2. Smart Flowchart image generate karein (Naya function name)
                 chart_filename = generate_smart_flowchart(flow_data)
                 # 3. Image ko Document mein insert karein
