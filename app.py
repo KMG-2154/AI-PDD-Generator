@@ -700,29 +700,49 @@ if st.button("Generate Process Design Document", disabled=generate_disabled):
                 # CONTENT PARAGRAPH
                 content = generate_ai_content(client, title, short_context, dynamic_title)
 
-                for line in content.split("\n"):
-                    line = line.strip()
+                content = content.strip()
 
-                    clean = line.lstrip("*-• ").strip()
+                for block in content.split("\n"):
 
-                    # detect list item by context (multi-line list from AI)
-                    if (
-                        clean
-                        and len(clean.split()) < 12
-                        and line[0].islower() is False
-                        and not clean.endswith(".")
-                    ):
-                        bullet = doc.add_paragraph(clean, style="List Bullet")
-                        set_font(bullet.runs[0], size=11)
+                    block = block.strip()
+                    if not block:
+                        continue
 
-                    elif clean:
-                        para = doc.add_paragraph(clean)
+                    # LIST ITEM → short line
+                    lower_block = block.lower()
+
+                    is_main_scope = lower_block in ["in scope", "out of scope"]
+
+                    is_intro_line = (
+                        block.endswith(":")
+                        or lower_block.startswith("the following")
+                        or lower_block.startswith("the key")
+                        or lower_block.startswith("key ")
+                    )
+
+                    if is_main_scope:
+
+                        if doc.paragraphs and doc.paragraphs[-1].text.strip().lower() == block.lower():
+                            continue
+
+                        p = doc.add_paragraph(style="List Bullet")
+                        run = p.add_run(block.title())
+                        set_font(run, size=11)
+
+                        continue
+                    elif len(block.split()) <= 12 and not block.endswith(".") and not is_intro_line and len(block) < 120:
+
+                        p = doc.add_paragraph(style="List Bullet 2")
+                        run = p.add_run(block.capitalize())
+                        set_font(run, size=11)
+                        # proper wrap & alignment
+                        p.paragraph_format.left_indent = Inches(0.5)
+                        p.paragraph_format.first_line_indent = Inches(-0.25)
+                    else:
+                        para = doc.add_paragraph(block)
+                        para.paragraph_format.space_after = Pt(6)
                         for run in para.runs:
                             set_font(run, size=11)
-                    elif line:
-                        para = doc.add_paragraph(line)
-                        for run in para.runs:
-                             set_font(run, size=11)
 
                                                                     # ==============================
                                                                     # PAGE 5: PROCESS FLOW
