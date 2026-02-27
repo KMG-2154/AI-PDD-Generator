@@ -297,12 +297,40 @@ with col2:
 st.markdown("""
 <style>
 
-/* Keep drag & drop text */
-[data-testid="stFileUploader"] section div {
+/* Make uploader horizontal */
+[data-testid="stFileUploader"] section {
     display: flex;
+    align-items: center;
+    justify-content: flex-start;
 }
 
-/* Hide only the helper text line */
+/* ICON + TEXT */
+[data-testid="stFileUploader"] section::before {
+    content: "  Drag and drop file here";
+    font-weight: 500;
+    color: #6b6b6b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    background-image: url("https://cdn-icons-png.flaticon.com/512/109/109612.png");
+    background-size: 22px 22px;
+    background-repeat: no-repeat;
+    background-position: left center;
+    padding-left: 30px;
+}
+
+/* ❌ Hide Browse button */
+[data-testid="stFileUploader"] button {
+    display: none !important;
+}
+
+/* ❌ Hide default text */
+[data-testid="stFileUploader"] section div span {
+    display: none !important;
+}
+
+/* ❌ Hide helper text */
 [data-testid="stFileUploader"] section div:nth-child(2) {
     display: none !important;
 }
