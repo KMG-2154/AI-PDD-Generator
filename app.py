@@ -26,6 +26,8 @@ BLACK = RGBColor(0, 0, 0)
 TEXT_GREY = RGBColor(80, 80, 80)
 # INPUT SIZE LIMIT
 MAX_CHARS = 15000
+MAX_FILE_MB = 5
+MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
                                                                 # ==============================
                                                                 # ------HELPER FUNCTIONS--------
                                                                 # ==============================
@@ -339,7 +341,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 client = Groq(api_key=api_key) if api_key else None
 uploaded_file = st.file_uploader(
-    f"Upload Source Process Input File (Maximum {MAX_CHARS:,} characters)",
+    f"Upload Source Process Input File (Maximum {MAX_FILE_MB} MB)",
     type=["txt", "docx"]
 )
 manual_input = st.text_area(
@@ -357,28 +359,30 @@ if char_count > MAX_CHARS:
     st.error("Input limit exceeded. Please reduce the content to proceed.")
 
 
+
 # -------- FILE CHECK --------
 if uploaded_file:
 
-    if uploaded_file.name.endswith(".docx"):
-        file_text = "\n".join([p.text for p in docx.Document(uploaded_file).paragraphs])
+    file_size = uploaded_file.size
 
-    else:
-        file_text = str(uploaded_file.read(), "utf-8")
-        uploaded_file.seek(0)   # ⭐ ADD THIS
-
-    if len(file_text) > MAX_CHARS:
+    if file_size > MAX_FILE_BYTES:
         file_exceeded = True
-        st.error("Uploaded document exceeds the supported size. Please upload a smaller file.")
+        st.error(f"Uploaded file exceeds {MAX_FILE_MB} MB limit.")
+
     else:
+        if uploaded_file.name.endswith(".docx"):
+            file_text = "\n".join([p.text for p in docx.Document(uploaded_file).paragraphs])
+
+        else:
+            file_text = str(uploaded_file.read(), "utf-8")
+            uploaded_file.seek(0)
+
         st.session_state.process_context = file_text
         process_context = file_text
-
-
 # -------- USE MANUAL INPUT --------
 elif manual_input and not manual_exceeded:
-    st.session_state.process_context = manual_input
-    process_context = manual_input
+            st.session_state.process_context = manual_input
+            process_context = manual_input
 generate_disabled = (
     (not process_context) or
     manual_exceeded or
